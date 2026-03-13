@@ -1,0 +1,241 @@
+<!DOCTYPE html><html lang="en"><head><meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://code.jquery.com https://unpkg.com https://d3js.org https://threejs.org https://cdn.plot.ly https://stackpath.bootstrapcdn.com https://maps.googleapis.com https://cdn.tailwindcss.com https://ajax.googleapis.com https://kit.fontawesome.com https://cdn.datatables.net https://maxcdn.bootstrapcdn.com https://code.highcharts.com https://tako-static-assets-production.s3.amazonaws.com https://www.youtube.com https://fonts.googleapis.com https://fonts.gstatic.com https://pfst.cf2.poecdn.net https://puc.poecdn.net https://i.imgur.com https://wikimedia.org https://*.icons8.com https://*.giphy.com https://picsum.photos https://images.unsplash.com; frame-src 'self' https://www.youtube.com https://trytako.com; child-src 'self'; manifest-src 'self'; worker-src 'self'; upgrade-insecure-requests; block-all-mixed-content;">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scana Energy – Ultimate Rate Calculator</title>
+<style>
+    :root{
+        --sca-blue:#003366;
+        --sca-red:#d71920;
+        --grey:#f5f5f5;
+        --green:#1a8f1a;
+    }
+    *{box-sizing:border-box;font-family:system-ui,Segoe UI,Roboto,sans-serif}
+    body{margin:0;padding:1rem;background:var(--grey);color:#222}
+    h1{color:var(--sca-blue);font-size:1.5rem;margin-top:0}
+    h2{margin:.8rem 0 .4rem}
+    .card{background:#fff;padding:1rem;border-radius:8px;max-width:1000px;margin:auto;box-shadow:0 2px 6px rgba(0,0,0,.1)}
+    label{display:block;margin:.5rem 0 .25rem;font-weight:600}
+    input[type="number"],input[type="text"]{width:100%;padding:.45rem .6rem;border:1px solid #ccc;border-radius:4px}
+    .flex{display:flex;gap:.65rem;flex-wrap:wrap}
+    .flex>div{flex:1 1 140px}
+    button{cursor:pointer;background:var(--sca-blue);color:#fff;border:none;padding:.55rem 1rem;border-radius:4px;font-weight:600}
+    button.secondary{background:#666}
+    table{width:100%;border-collapse:collapse;margin-top:1rem}
+    th,td{padding:.45rem .4rem;text-align:right;border-bottom:1px solid #ddd;font-variant-numeric:tabular-nums}
+    th{background:var(--sca-blue);color:#fff;font-size:.9rem;text-align:center}
+    td:first-child,th:first-child{text-align:left}
+    .chart-row{display:flex;align-items:center;gap:.4rem;margin:.25rem 0}
+    .chart-row span:first-child{flex:0 0 140px;font-size:.85rem}
+    .chart-row span:last-child{flex:0 0 90px;text-align:right;font-variant-numeric:tabular-nums}
+    .bar{height:18px;background:#bbb;border-radius:4px;flex:1 1 auto}
+    .bar.best{background:var(--green)}
+    @media (max-width:650px){
+        .flex{flex-direction:column}
+        td,th{font-size:.85rem}
+        .chart-row span:first-child{flex:0 0 110px}
+    }
+</style>
+</head>
+<body>
+<div class="card">
+    <h1>Scana Energy – Ultimate Rate Calculator</h1>
+
+    <!-- CCF ↔ Therm converter -->
+    <h2>CCF ↔ Therm Converter</h2>
+    <div class="flex">
+        <div>
+            <label>Gas Volume (CCF)</label>
+            <input type="number" id="ccfInput" min="0" step=".01" oninput="convertCCF()">
+        </div>
+        <div>
+            <label>Conversion Factor (Therms per CCF)</label>
+            <input type="number" id="cfactor" value="1.037" min="0" step=".001" oninput="convertCCF()">
+        </div>
+        <div>
+            <label>Therms (result)</label>
+            <input type="number" id="thermResult" readonly="">
+        </div>
+        <div style="align-self:end">
+            <button class="secondary" onclick="applyTherms()">Use as Avg. Therms/Year</button>
+        </div>
+    </div>
+
+    <!-- GLOBAL INPUTS -->
+    <h2>Customer Usage</h2>
+    <div class="flex">
+        <div>
+            <label>Avg. Therms / Year</label>
+            <input type="number" id="usage" value="1200" min="0" step="1">
+        </div>
+    </div>
+
+    <!-- SCANA OFFER -->
+    <h2 style="color:var(--sca-red)">Scana Offer</h2>
+    <div class="flex">
+        <div>
+            <label>Rate (¢/therm)</label>
+            <input type="number" id="scaRate" value="59.9" min="0" step=".01">
+        </div>
+        <div>
+            <label>CSC ($/month)</label>
+            <input type="number" id="scaCSC" value="6.95" min="0" step=".01">
+        </div>
+        <div>
+            <label>Bonus ($ credit)</label>
+            <input type="number" id="scaBonus" value="0" step=".01">
+        </div>
+        <div>
+            <label>Plan Term (months)</label>
+            <input type="number" id="scaTerm" value="12" min="1">
+        </div>
+    </div>
+
+    <!-- COMPETITORS -->
+    <h2>Competitor Offers</h2>
+    <div id="compWrap"></div>
+    <button class="secondary" onclick="addRow()">+ Add Competitor</button>
+
+    <!-- RESULTS -->
+    <button style="margin-top:1rem" onclick="calculate()">Calculate</button>
+
+    <div id="results"></div>
+</div>
+
+<script>
+/* ── Global helpers ────────────────────────────────────── */
+let compIndex=0;
+addRow();                                             // start with one empty competitor row
+function dollars(x){return x.toLocaleString(undefined,{style:'currency',currency:'USD',minimumFractionDigits:2})}
+
+/* ── Converter ────────────────────────────────────────── */
+function convertCCF(){
+    const ccf=+document.getElementById('ccfInput').value||0;
+    const factor=+document.getElementById('cfactor').value||1;
+    document.getElementById('thermResult').value=(ccf*factor).toFixed(2);
+}
+function applyTherms(){
+    const therms=+document.getElementById('thermResult').value||0;
+    if(therms>0) document.getElementById('usage').value=therms;
+}
+
+/* ── Dynamic competitor rows ──────────────────────────── */
+function addRow(name='',rate='',csc='',bonus='',term=12){
+    const id=compIndex++;
+    const div=document.createElement('div');
+    div.className='flex';
+    div.style.marginBottom='.6rem';
+    div.dataset.id=id;
+    div.innerHTML=`
+        <div><label>Name</label>
+             <input type="text" placeholder="Company" id="name-${id}" value="${name}"></div>
+        <div><label>Rate (¢/therm)</label>
+             <input type="number" id="rate-${id}" value="${rate}" min="0" step=".01"></div>
+        <div><label>CSC ($/month)</label>
+             <input type="number" id="csc-${id}" value="${csc}" min="0" step=".01"></div>
+        <div><label>Bonus ($ credit)</label>
+             <input type="number" id="bonus-${id}" value="${bonus}" step=".01"></div>
+        <div><label>Term (months)</label>
+             <input type="number" id="term-${id}" value="${term}" min="1"></div>
+        <div style="align-self:end"><button class="secondary" onclick="this.closest('.flex').remove()">Remove</button></div>
+    `;
+    document.getElementById('compWrap').appendChild(div);
+}
+
+/* ── Cost formulas ─────────────────────────────────────── */
+function costAnnual(annualTherms,rateCents,csc,bonus){
+    return annualTherms*rateCents/100 + csc*12 - bonus;          // bonus is credit (positive)
+}
+
+/* ── Main calculation & rendering ──────────────────────── */
+function calculate(){
+    const usageYr=+document.getElementById('usage').value||0;
+
+    /* --- Scana --- */
+    const sca={
+        name:'Scana',
+        rate:+document.getElementById('scaRate').value||0,
+        csc:+document.getElementById('scaCSC').value||0,
+        bonus:+document.getElementById('scaBonus').value||0,
+        term:+document.getElementById('scaTerm').value||12
+    };
+    sca.annual=costAnnual(usageYr,sca.rate,sca.csc,sca.bonus);
+    sca.monthly=sca.annual/12;
+
+    /* --- Competitors --- */
+    const plans=[sca];                     // first element = Scana
+    document.querySelectorAll('#compWrap .flex').forEach(row=>{
+        const id=row.dataset.id;
+        const p={
+            name:document.getElementById(`name-${id}`).value||`Competitor ${+id+1}`,
+            rate:+document.getElementById(`rate-${id}`).value||0,
+            csc:+document.getElementById(`csc-${id}`).value||0,
+            bonus:+document.getElementById(`bonus-${id}`).value||0,
+            term:+document.getElementById(`term-${id}`).value||12
+        };
+        p.annual=costAnnual(usageYr,p.rate,p.csc,p.bonus);
+        p.monthly=p.annual/12;
+        plans.push(p);
+    });
+
+    /* --- Determine best --- */
+    const best=plans.reduce((min,p)=>p.annual<min.annual?p:min,plans[0]);
+
+    /* --- Savings array (positive = money saved choosing this plan over current row) --- */
+    plans.forEach(p=>{
+        p.savings=best.annual - p.annual;          // 0 for best; negative if more expensive
+    });
+
+    /* --- Build results table --- */
+    let html=`
+    <table>
+        <thead>
+            <tr>
+                <th>Offer</th><th>¢/therm</th><th>CSC</th><th>Bonus</th>
+                <th>Adj. Monthly</th><th>Adj. Annual</th><th>Savings vs Best</th>
+            </tr>
+        </thead><tbody>`;
+    plans.forEach(p=>{
+        const color=p.savings>0?'red':p.savings<0?'green':'';   // saving <0 means costlier
+        const sign=p.savings>0?'-':p.savings<0?'+':'';
+        html+=`
+            <tr ${p===sca?'style="font-weight:bold;color:var(--sca-red)"':''}>
+                <td>${p.name}${p===best?' ⭐':''}</td>
+                <td>${p.rate.toFixed(2)}</td>
+                <td>${dollars(p.csc)}</td>
+                <td>${dollars(p.bonus)}</td>
+                <td>${dollars(p.monthly)}</td>
+                <td>${dollars(p.annual)}</td>
+                <td style="color:${color}">${p===best?'–':sign+dollars(Math.abs(p.savings))}</td>
+            </tr>`;
+    });
+    html+='</tbody></table>';
+
+    /* --- Savings summary --- */
+    const secondBest=plans.filter(p=>p!==best).reduce((min,p)=>p.annual<min.annual?p:min,plans.filter(p=>p!==best)[0]);
+    const sum = `
+        <h3>Savings Summary</h3>
+        <p><strong>Best Offer:</strong> ${best.name}<br>
+           <strong>Adjusted Annual Cost:</strong> ${dollars(best.annual)}<br>
+           <strong>Adjusted Monthly Cost:</strong> ${dollars(best.monthly)}<br>
+           <strong>Annual Savings vs Next Best:</strong> ${dollars(secondBest.annual - best.annual)}</p>
+    `;
+
+    /* --- At-a-Glance chart (bar lengths = cost %) --- */
+    const maxCost=Math.max(...plans.map(p=>p.annual));
+    let chart='<h3>At-a-Glance Cost Chart</h3>';
+    plans.forEach(p=>{
+        const width=(p.annual/maxCost*100).toFixed(1);
+        chart+=`
+            <div class="chart-row">
+                <span>${p.name}</span>
+                <div class="bar ${p===best?'best':''}" style="width:${width}%"></div>
+                <span>${dollars(p.annual)}</span>
+            </div>`;
+    });
+
+    document.getElementById('results').innerHTML=html+sum+chart;
+}
+</script>
+
+
+</body></html>
